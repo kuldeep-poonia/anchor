@@ -179,7 +179,13 @@ class ActionExecutor:
             if action.args:
                 cmd_args = [action.target, *action.args]
             else:
-                cmd_args = shlex.split(action.target, posix=False)
+                raw_parts = shlex.split(action.target, posix=False)
+                cmd_args = [
+                    p[1:-1]
+                    if (p.startswith('"') and p.endswith('"')) or (p.startswith("'") and p.endswith("'"))
+                    else p
+                    for p in raw_parts
+                ]
 
             proc = subprocess.run(
                 cmd_args,
