@@ -56,7 +56,7 @@ def demo() -> None:
     5. Automatic snapshot & rollback on verification failure
     """
     typer.echo("=" * 60)
-    typer.echo("ANCHOR — Deterministic AI Agent Safety Demo (Offline Mode)")
+    typer.echo("ANCHOR - Deterministic AI Agent Safety Demo (Offline Mode)")
     typer.echo("=" * 60)
 
     ws, db, snapshot_mgr = _get_context(".")

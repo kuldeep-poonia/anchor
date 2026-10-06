@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -174,6 +175,10 @@ class ActionExecutor:
         clean_env = os.environ.copy()
         for var in SENSITIVE_ENV_VARS:
             clean_env.pop(var, None)
+
+        # Prioritize active virtual environment binary path
+        bin_dir = str(Path(sys.executable).parent)
+        clean_env["PATH"] = f"{bin_dir}{os.pathsep}{clean_env.get('PATH', '')}"
 
         try:
             if action.args:

@@ -3,6 +3,8 @@
 import os
 import shlex
 import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -106,6 +108,9 @@ class VerificationRunner:
         clean_env = os.environ.copy()
         for var in SENSITIVE_ENV_VARS:
             clean_env.pop(var, None)
+
+        bin_dir = str(Path(sys.executable).parent)
+        clean_env["PATH"] = f"{bin_dir}{os.pathsep}{clean_env.get('PATH', '')}"
 
         try:
             raw_parts = shlex.split(cmd_string, posix=False)
