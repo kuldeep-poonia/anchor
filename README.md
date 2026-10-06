@@ -183,13 +183,22 @@ if decision.decision == "ALLOW":
 - Python 3.10, 3.11, or 3.12
 - Git
 
-### Quickstart Installation
+### Option 1: One-Line Global Install from GitHub (Fastest)
+Any user can install and use ANCHOR globally in one command:
+```bash
+pip install git+https://github.com/kuldeep-poonia/anchor.git
+
+# Run directly from anywhere in your terminal:
+anchor demo
+```
+
+### Option 2: Clone & Local Development Setup
 ```bash
 # 1. Clone repository
 git clone https://github.com/kuldeep-poonia/anchor.git
 cd anchor
 
-# 2. Create virtual environment
+# 2. Create and activate virtual environment
 python -m venv .venv
 # On Windows:
 .venv\Scripts\activate
@@ -198,7 +207,15 @@ source .venv/bin/activate
 
 # 3. Install in editable mode
 pip install -e .
+
+# Run CLI:
+anchor demo
 ```
+
+> **Tip:** You can also run ANCHOR directly via Python module syntax without relying on PATH:
+> ```bash
+> python -m anchor demo
+> ```
 
 ### Optional: Enable NVIDIA Nemotron Mode
 ```bash
