@@ -119,7 +119,13 @@ anchor status
 ```
 Displays active workspace boundary, active provider mode (Local or Nebius), pending human approvals, snapshot history, and recent audit records.
 
-### 5. Approve or Deny High-Risk Operations
+### 5. Create a Safety Checkpoint Anytime
+Save the exact state of all current workspace files (including `.env`, configurations, and source code) before running agent experiments:
+```bash
+anchor checkpoint "before-refactor"
+```
+
+### 6. Approve or Deny High-Risk Operations
 ```bash
 # Approve a pending destructive action:
 anchor approve <action-id>
@@ -128,15 +134,18 @@ anchor approve <action-id>
 anchor deny <action-id>
 ```
 
-### 6. Instant Rollback (`anchor undo`)
-Revert the workspace to the latest pre-mutation checkpoint:
+### 7. Instant Rollback (`anchor undo`)
+Revert the workspace to the previous checkpoint or baseline state:
 ```bash
 anchor undo
+
+# Or revert to a specific snapshot ID:
+anchor undo snap_1791261648_995e18bd
 ```
-- **Modified files:** Restored from pre-mutation backup copies.
-- **Newly created files:** Safely deleted.
-- **Deleted files:** Restored from pre-mutation snapshots.
-- *Note:* Does not require Git commits—works directly on the filesystem level.
+- **Missing or deleted files (e.g. `.env`):** Restored from checkpoint backup copies.
+- **Modified files:** Reverted cleanly to the snapshot content.
+- **Unverified or temporary files:** Safely removed.
+- *Note:* Does not require Git commits—works deterministically at the filesystem level.
 
 ---
 

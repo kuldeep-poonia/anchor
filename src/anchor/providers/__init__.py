@@ -6,6 +6,8 @@ from anchor.providers.base import IntentProvider, ProviderError
 from anchor.providers.local import LocalProvider
 from anchor.providers.nebius import NebiusProvider
 
+from anchor.workspace.paths import Workspace
+
 __all__ = [
     "IntentProvider",
     "LocalProvider",
@@ -15,7 +17,10 @@ __all__ = [
 ]
 
 
-def get_provider(api_key: str | None = None) -> IntentProvider:
+def get_provider(
+    api_key: str | None = None,
+    workspace: Workspace | None = None,
+) -> IntentProvider:
     """
     Get configured intent provider based on environment and credentials.
 
@@ -25,4 +30,4 @@ def get_provider(api_key: str | None = None) -> IntentProvider:
     key = api_key or os.getenv("NEBIUS_API_KEY", "").strip()
     if key:
         return NebiusProvider(api_key=key)
-    return LocalProvider()
+    return LocalProvider(workspace=workspace)

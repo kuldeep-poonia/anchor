@@ -32,9 +32,11 @@ class SnapshotManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     snapshot_id: str
-    action_id: str
-    action_type: str
-    target: str
+    action_id: str = "checkpoint"
+    action_type: str = "checkpoint"
+    target: str = "workspace"
+    description: str = ""
+    is_workspace_checkpoint: bool = False
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -50,6 +52,31 @@ def _compute_sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
+IGNORED_DIRS = {
+    ".anchor",
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    "node_modules",
+    ".idea",
+    ".vscode",
+}
+
+
+def _is_ignored(path: Path, root: Path) -> bool:
+    """Check if file path falls within ignored directories."""
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    return any(p in IGNORED_DIRS for p in rel_parts)
+
+
 class SnapshotManager:
     """Manages pre-mutation checkpoints and state restorations."""
 
@@ -57,6 +84,65 @@ class SnapshotManager:
         self.workspace = workspace
         self.snapshot_dir = snapshot_dir or (self.workspace.root / ".anchor" / "snapshots")
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        self.last_restored: list[str] = []
+        self.last_removed: list[str] = []
+        self.last_unchanged: list[str] = []
+
+    def create_workspace_checkpoint(
+        self,
+        description: str = "workspace checkpoint",
+    ) -> str:
+        """
+        Create a point-in-time snapshot of all current workspace files.
+
+        Captures existing environment, config, and source files so any
+        subsequent modifications or deletions can be fully rolled back.
+        """
+        snapshot_id = f"snap_{int(datetime.now(timezone.utc).timestamp())}_{uuid.uuid4().hex[:8]}"
+        snap_path = self.snapshot_dir / snapshot_id
+        files_backup_dir = snap_path / "files"
+        files_backup_dir.mkdir(parents=True, exist_ok=True)
+
+        tracked_states: list[FileState] = []
+        file_idx = 0
+
+        for item in self.workspace.root.rglob("*"):
+            if item.is_file() and not _is_ignored(item, self.workspace.root):
+                rel_posix = item.relative_to(self.workspace.root).as_posix()
+                backup_name = f"backup_{file_idx}"
+                dest = files_backup_dir / backup_name
+                shutil.copy2(item, dest)
+                sha = _compute_sha256(item)
+                tracked_states.append(
+                    FileState(
+                        rel_path=rel_posix,
+                        existed=True,
+                        backup_file=backup_name,
+                        sha256=sha,
+                    )
+                )
+                file_idx += 1
+
+        manifest = SnapshotManifest(
+            snapshot_id=snapshot_id,
+            action_id="checkpoint",
+            action_type="checkpoint",
+            target="workspace",
+            description=description,
+            is_workspace_checkpoint=True,
+            files=tracked_states,
+        )
+
+        manifest_file = snap_path / "manifest.json"
+        manifest_file.write_text(
+            json.dumps(manifest.model_dump(), indent=2),
+            encoding="utf-8",
+        )
+
+        latest_file = self.snapshot_dir / "LATEST"
+        latest_file.write_text(snapshot_id, encoding="utf-8")
+
+        return snapshot_id
 
     def create_snapshot(
         self,
@@ -139,6 +225,10 @@ class SnapshotManager:
 
         Enforces strict workspace containment for all restored paths.
         """
+        self.last_restored = []
+        self.last_removed = []
+        self.last_unchanged = []
+
         target_id = snapshot_id
         if not target_id:
             latest_file = self.snapshot_dir / "LATEST"
@@ -158,10 +248,11 @@ class SnapshotManager:
             raise SnapshotError(f"Corrupted snapshot manifest: {err}") from err
 
         files_backup_dir = snap_path / "files"
+        checkpoint_tracked_paths: set[str] = set()
 
         # Rollback each recorded file
         for state in manifest.files:
-            # Enforce path containment before modifying
+            checkpoint_tracked_paths.add(state.rel_path)
             try:
                 target_path = self.workspace.resolve(state.rel_path)
             except WorkspaceBoundaryError as err:
@@ -179,8 +270,17 @@ class SnapshotManager:
                         f"Missing backup file {state.backup_file} for {state.rel_path}"
                     )
 
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(backup_path, target_path)
+                # Check if target is missing or content changed
+                needs_restore = (
+                    not target_path.exists()
+                    or _compute_sha256(target_path) != state.sha256
+                )
+                if needs_restore:
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(backup_path, target_path)
+                    self.last_restored.append(state.rel_path)
+                else:
+                    self.last_unchanged.append(state.rel_path)
             else:
                 # File was newly created by the action: remove it
                 if target_path.exists():
@@ -188,6 +288,16 @@ class SnapshotManager:
                         target_path.unlink()
                     elif target_path.is_dir():
                         shutil.rmtree(target_path)
+                    self.last_removed.append(state.rel_path)
+
+        # For workspace checkpoints, remove any files created after the checkpoint
+        if manifest.is_workspace_checkpoint:
+            for item in self.workspace.root.rglob("*"):
+                if item.is_file() and not _is_ignored(item, self.workspace.root):
+                    rel_posix = item.relative_to(self.workspace.root).as_posix()
+                    if rel_posix not in checkpoint_tracked_paths:
+                        item.unlink()
+                        self.last_removed.append(rel_posix)
 
         return True
 

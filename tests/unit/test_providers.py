@@ -1,5 +1,7 @@
 """Unit tests for AI providers (Local and Nebius)."""
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -29,6 +31,29 @@ def test_local_provider_proposes_actions() -> None:
     assert "write_file" in types
     assert "read_file" in types
     assert "delete_file" in types
+
+
+def test_local_provider_without_src_does_not_assume_src(tmp_path: Path) -> None:
+    from anchor.workspace.paths import Workspace
+    ws = Workspace(tmp_path)
+    provider = LocalProvider(workspace=ws)
+    contract = provider.generate_contract("Implement payment gateway")
+    actions = provider.propose_actions("Implement payment gateway", contract)
+
+    write_action = next(a for a in actions if a.type == "write_file")
+    assert not write_action.target.startswith("src/")
+    assert "payment" in write_action.target
+
+
+def test_local_provider_with_explicit_filename(tmp_path: Path) -> None:
+    from anchor.workspace.paths import Workspace
+    ws = Workspace(tmp_path)
+    provider = LocalProvider(workspace=ws)
+    contract = provider.generate_contract("Create script in weather_tool.py")
+    actions = provider.propose_actions("Create script in weather_tool.py", contract)
+
+    write_action = next(a for a in actions if a.type == "write_file")
+    assert write_action.target == "weather_tool.py"
 
 
 def test_get_provider_factory_selection(monkeypatch: pytest.MonkeyPatch) -> None:

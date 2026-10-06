@@ -58,8 +58,20 @@ def test_cli_approve_and_deny(tmp_path: Path) -> None:
             assert approve_res.exit_code in {0, 1}
 
 
+def test_cli_checkpoint(tmp_path: Path) -> None:
+    runner.invoke(app, ["init", "-w", str(tmp_path)])
+    test_file = tmp_path / "config.json"
+    test_file.write_text('{"env": "test"}', encoding="utf-8")
+
+    res = runner.invoke(app, ["checkpoint", "save_test", "-w", str(tmp_path)])
+    assert res.exit_code == 0
+    assert "Checkpoint created: 'save_test'" in res.stdout
+
+
 def test_cli_undo(tmp_path: Path) -> None:
     # Trigger an action that creates a snapshot
     runner.invoke(app, ["run", "Build app entrypoint", "-w", str(tmp_path)])
     undo_res = runner.invoke(app, ["undo", "-w", str(tmp_path)])
     assert undo_res.exit_code == 0
+    assert "Successfully rolled back workspace" in undo_res.stdout
+

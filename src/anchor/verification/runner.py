@@ -109,6 +109,7 @@ class VerificationRunner:
         for var in SENSITIVE_ENV_VARS:
             clean_env.pop(var, None)
 
+        clean_env["PYTHONWARNINGS"] = "ignore"
         bin_dir = str(Path(sys.executable).parent)
         clean_env["PATH"] = f"{bin_dir}{os.pathsep}{clean_env.get('PATH', '')}"
 
@@ -131,7 +132,16 @@ class VerificationRunner:
                 check=False,
             )
 
-            is_verified = proc.returncode == 0
+            # Code 0 is success. If pytest returns 5 (no tests collected) on a project with no tests, accept as clean
+            has_tests = any(
+                p for p in self.workspace.root.rglob("test_*.py")
+                if ".anchor" not in p.parts and ".git" not in p.parts and ".venv" not in p.parts
+            ) or any(
+                p for p in self.workspace.root.rglob("*_test.py")
+                if ".anchor" not in p.parts and ".git" not in p.parts and ".venv" not in p.parts
+            )
+            is_verified = (proc.returncode == 0) or ("pytest" in cmd_string and proc.returncode == 5 and not has_tests)
+
             return VerificationResult(
                 verified=is_verified,
                 command=cmd_string,

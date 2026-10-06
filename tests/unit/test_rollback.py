@@ -81,3 +81,28 @@ def test_rollback_deleted_file(tmp_path: Path) -> None:
     mgr.restore_snapshot(snap_id)
     assert target_file.exists()
     assert target_file.read_text(encoding="utf-8") == "DO_NOT_LOSE_ME"
+
+
+def test_workspace_checkpoint_restores_deleted_env_file(tmp_path: Path) -> None:
+    ws = Workspace(tmp_path)
+    mgr = SnapshotManager(ws)
+
+    # User creates .env
+    env_file = tmp_path / ".env"
+    env_file.write_text("API_SECRET_KEY=super_confidential_token_999\n", encoding="utf-8")
+
+    # Workspace checkpoint is taken
+    snap_id = mgr.create_workspace_checkpoint(description="test_checkpoint")
+    assert snap_id is not None
+
+    # User or agent deletes .env
+    env_file.unlink()
+    assert not env_file.exists()
+
+    # Rollback restores .env
+    success = mgr.restore_snapshot(snap_id)
+    assert success is True
+    assert env_file.exists()
+    assert "super_confidential_token_999" in env_file.read_text(encoding="utf-8")
+    assert ".env" in mgr.last_restored
+

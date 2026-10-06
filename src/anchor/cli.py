@@ -37,10 +37,23 @@ def _get_context(workspace_path: str = ".") -> tuple[Workspace, AuditDatabase, S
 def init(
     workspace: str = typer.Option(".", "--workspace", "-w", help="Workspace directory path"),
 ) -> None:
-    """Initialize ANCHOR safety configuration and audit state in workspace."""
-    ws, _, _ = _get_context(workspace)
+    """Initialize ANCHOR safety configuration and baseline state in workspace."""
+    ws, _, snapshot_mgr = _get_context(workspace)
+    snap_id = snapshot_mgr.create_workspace_checkpoint(description="init_baseline")
     typer.echo(f"Initialized ANCHOR safety boundary in {ws.root}")
+    typer.echo(f"Baseline checkpoint created: {snap_id}")
     typer.echo("State directory: .anchor/")
+
+
+@app.command()
+def checkpoint(
+    name: str = typer.Argument("manual_checkpoint", help="Checkpoint name or description"),
+    workspace: str = typer.Option(".", "--workspace", "-w", help="Workspace path"),
+) -> None:
+    """Create a point-in-time safety checkpoint of the entire workspace."""
+    ws, _, snapshot_mgr = _get_context(workspace)
+    snap_id = snapshot_mgr.create_workspace_checkpoint(description=name)
+    typer.echo(f"Checkpoint created: '{name}' (ID: {snap_id})")
 
 
 @app.command()
@@ -64,7 +77,7 @@ def demo() -> None:
     policy_engine = PolicyEngine(ws, risk_engine)
     executor = ActionExecutor(ws)
     verifier = VerificationRunner(ws)
-    provider = get_provider()
+    provider = get_provider(workspace=ws)
 
     goal = "Refactor authentication service and enforce security"
     typer.echo(f"\n[1] Agent Goal: {goal}")
@@ -150,8 +163,9 @@ def run(
     executor = ActionExecutor(ws)
     verifier = VerificationRunner(ws)
 
-    # Provider selection
-    provider = get_provider()
+    # Provider selection and pre-run safety checkpoint
+    snapshot_mgr.create_workspace_checkpoint(description=f"pre_run: {goal}")
+    provider = get_provider(workspace=ws)
     provider_name = "Nebius (NVIDIA Nemotron)" if os.getenv("NEBIUS_API_KEY") else "Local (Deterministic)"
     typer.echo(f"Active Provider: {provider_name}")
     typer.echo(f"Goal: {goal}\n")
@@ -314,16 +328,42 @@ def deny(
 
 @app.command()
 def undo(
+    snapshot_id: str = typer.Argument(None, help="Optional snapshot ID to restore"),
     workspace: str = typer.Option(".", "--workspace", "-w", help="Workspace path"),
 ) -> None:
-    """Roll back to the previous snapshot state."""
+    """Roll back workspace to previous checkpoint or specified snapshot."""
     _, _, snapshot_mgr = _get_context(workspace)
     try:
-        success = snapshot_mgr.restore_snapshot()
-        if success:
-            typer.echo("Successfully rolled back workspace to previous checkpoint.")
-        else:
+        snapshots = snapshot_mgr.list_snapshots()
+        if not snapshots:
             typer.echo("No previous snapshot found to restore.")
+            return
+
+        if snapshot_id:
+            candidates = [snapshot_id]
+        else:
+            candidates = list(reversed(snapshots))
+
+        restored_any = False
+        chosen_id = None
+        for candidate_id in candidates:
+            success = snapshot_mgr.restore_snapshot(candidate_id)
+            if success and (snapshot_mgr.last_restored or snapshot_mgr.last_removed):
+                restored_any = True
+                chosen_id = candidate_id
+                break
+
+        if not restored_any and candidates:
+            chosen_id = candidates[0]
+            snapshot_mgr.restore_snapshot(chosen_id)
+
+        typer.echo(f"Successfully rolled back workspace to snapshot '{chosen_id}':")
+        if snapshot_mgr.last_restored:
+            typer.echo(f"  Restored ({len(snapshot_mgr.last_restored)}): {', '.join(snapshot_mgr.last_restored)}")
+        if snapshot_mgr.last_removed:
+            typer.echo(f"  Removed ({len(snapshot_mgr.last_removed)}): {', '.join(snapshot_mgr.last_removed)}")
+        if not snapshot_mgr.last_restored and not snapshot_mgr.last_removed:
+            typer.echo(f"  Workspace already matches snapshot '{chosen_id}' (No changes needed).")
     except SnapshotError as err:
         typer.echo(f"Rollback error: {err}", err=True)
         raise typer.Exit(code=1) from None
